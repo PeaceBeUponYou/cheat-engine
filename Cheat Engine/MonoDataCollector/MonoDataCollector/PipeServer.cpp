@@ -2880,6 +2880,7 @@ void CPipeServer::InvokeMethod(void)
 	void* pThis = (void*)ReadQword();
 	void* result;
 	WORD nargs;
+	MonoType* retType = nullptr;
 	if (il2cpp)
 	{
 		nargs = il2cpp_method_get_param_count(method);
@@ -2888,6 +2889,7 @@ void CPipeServer::InvokeMethod(void)
 	{
 		void* methodsignature = mono_method_signature(method);
 		nargs = methodsignature ? mono_signature_get_param_count(methodsignature) : 0;
+		retType = methodsignature ? mono_signature_get_return_type(methodsignature) : nullptr;
 	}
 	void* arry[16];
 	UINT64 args[32];
@@ -2961,6 +2963,7 @@ void CPipeServer::InvokeMethod(void)
 		result = mono_runtime_invoke(method, pThis, arry, &exception);
 		if (!result)
 		{
+			WriteByte(0); // for isRefType
 			WriteByte(MONO_TYPE_VOID);
 			WriteQword((UINT64)result);
 		}
@@ -2969,6 +2972,12 @@ void CPipeServer::InvokeMethod(void)
 			void* klass = mono_object_get_class(result);
 			void* type = klass ? mono_class_get_type(klass) : NULL;
 			int returntype = type ? mono_type_get_type(type) : MONO_TYPE_VOID;
+			bool isRefType = (retType && !!mono_type_is_byref) ? mono_type_is_byref(retType) : false;
+			WriteByte(isRefType ? 1 : 0);
+			if (isRefType)
+			{
+				WriteQword((UINT64)result);
+			}
 			WriteByte(returntype);
 			switch (returntype)
 			{
@@ -3056,7 +3065,7 @@ void CPipeServer::InvokeMethod(void)
 			}
 		}
 
-		// Push exception is caused
+		// Push exception if caused
 		if (exception && mono_object_to_string && mono_string_to_utf8)
 		{
 			WriteByte(1);
